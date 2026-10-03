@@ -1,0 +1,22 @@
+diff --git a/start_api_server_macos.sh b/start_api_server_macos.sh
+index 632d505..b72e06e 100755
+--- a/start_api_server_macos.sh
++++ b/start_api_server_macos.sh
+@@ -18,7 +18,7 @@ export TOKENIZERS_PARALLELISM="false"
+ # ==================== Server Configuration ====================
+ HOST="127.0.0.1"
+ # HOST="0.0.0.0"
+-PORT=8001
++PORT=8002
+ 
+ # API key for authentication (optional, value only)
+ API_KEY=""
+@@ -40,7 +40,7 @@ LM_MODEL_PATH=""
+ # LM_MODEL_PATH="acestep-5Hz-lm-0.6B"
+ 
+ # Update check on startup (set to "false" to disable)
+-CHECK_UPDATE="true"
++CHECK_UPDATE="false"
+ # CHECK_UPDATE="false"
+ 
+ # Skip model loading at startup (models will be lazy-loaded on first request)
