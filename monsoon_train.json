@@ -1,0 +1,28 @@
+{
+  "name": "last_train_through_the_monsoon",
+  "takes_per_prompt": 3,
+  "seconds_per_take": 300,
+  "parts": [
+    {
+      "name": "platform_02",
+      "bpm": 140,
+      "prompt": "Instrumental atmospheric lo-fi trap, 140 BPM with a relaxed 70 BPM half-time feel. Waiting for the last train on a rain-soaked platform after midnight. Warm muted felt piano repeating a simple melancholic motif, soft tape-saturated electric piano chords, distant airy synth pads, rounded deep 808 bass with gentle glides, restrained crisp trap hi-hats with occasional short rolls, soft half-time snare and subdued kick. Intimate, patient and comforting. Subtle rain texture tucked far behind the beat. A cohesive five-minute instrumental with gentle variations, spacious transitions and a steady groove, no dramatic drops. No vocals, no singing, no spoken words.",
+      "scene": "View from inside an empty late-night commuter train beside a station platform in monsoon rain. A large rectangular window dominates the upper center of the image, looking out at an empty wet platform, amber lamps reflected on pavement, blue night sky and distant apartment lights. Dark teal window frame, a little warm-lit seat visible at the bottom, intimate calm composition, full-frame scene without black bars.",
+      "effects": ["rain=0.12,0.12,0.88,0.78", "sweep", "flicker", "grain"]
+    },
+    {
+      "name": "rain_on_the_glass",
+      "bpm": 144,
+      "prompt": "Instrumental atmospheric lo-fi trap, 144 BPM with a hypnotic 72 BPM half-time feel. Riding an almost empty train through a sleeping city in heavy monsoon rain. Deep smooth 808 sub bass, tight subdued kick, soft half-time snare, delicate trap hi-hats with sparse triplet rolls. Hazy analog synth chords, a sparse muted piano motif, occasional soft glassy bell notes, warm tape texture. Moody, immersive and gently propulsive, suitable for coding and late-night focus. Faint rain ambience beneath the music. A cohesive five-minute instrumental with subtle melodic changes and a continuous relaxed groove, no aggressive drops or loud risers. No vocals, no singing, no spoken words.",
+      "scene": "View from inside an empty moving commuter train at midnight during monsoon rain. A large rectangular window dominates the upper center, rain streaks on the glass, distant apartment towers with tiny purple and cyan lights outside, wet railway reflections, dark blue sky. Dark teal window frame and a little warm-lit seat at the bottom, peaceful lonely atmosphere, full-frame scene without black bars.",
+      "effects": ["rain=0.12,0.12,0.88,0.78", "sweep", "flicker", "grain"]
+    },
+    {
+      "name": "before_the_city_wakes",
+      "bpm": 136,
+      "prompt": "Instrumental gentle lo-fi trap, 136 BPM with a slow 68 BPM half-time feel. The last train approaches the edge of the city just before dawn after a monsoon night. Warm electric piano chords with a softly hopeful melody, airy sustained synth pads, delicate plucked bell accents, mellow rounded 808 bass, sparse soft trap hi-hats, understated half-time snare and gentle kick. Calm, reflective and gradually brighter, a restful ending to a night of work. Very faint residual rain texture behind the music. A cohesive five-minute instrumental with gentle harmonic variations, spacious phrases and steady restrained drums, no dramatic build-ups or drops. No vocals, no singing, no spoken words.",
+      "scene": "View from inside an empty commuter train just before sunrise after monsoon rain. A large rectangular window dominates the upper center, raindrops on glass, low city buildings and railway tracks outside, soft lavender dawn sky with a pale peach glow on the horizon, a few lingering amber streetlights and puddle reflections. Dark teal window frame and a little warm-lit seat at the bottom, peaceful hopeful mood, full-frame scene without black bars.",
+      "effects": ["rain=0.12,0.12,0.88,0.78", "sweep", "flicker", "grain"]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+/ACE-Step-1.5/
+/.venv*/
+/models/
+/candidates/
+/art/
+/video/
+/mixes/
+/releases/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.log
+.env
+.env.*
+/.aws/
