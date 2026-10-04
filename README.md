@@ -29,21 +29,31 @@ flowchart LR
 The pipeline exports files for upload. It does not upload to YouTube or select
 music by listening quality; review generated audio and metadata before use.
 
-## Requirements
-
-- macOS on Apple Silicon. The current workflow was used on a Mac with 24 GB RAM.
-- [Homebrew](https://brew.sh/), Git, [uv](https://docs.astral.sh/uv/), and FFmpeg
-  with `ffprobe` on your PATH.
-- Python 3.12, installed by uv if needed.
-- Disk space for both model sets and generated audio/video. The FLUX weights
-  alone are approximately 9.6 GB; long releases can occupy several more GB each.
-
-The scripts expect the directory names below. ACE-Step uses its own environment;
-art, animation, and orchestration use `.venv-flux`.
-
 ## Installation
 
-Clone this repository and install the art environment:
+On an **Apple Silicon Mac**, paste this single command into Terminal:
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mowne67/music-gen/main/setup.sh)"
+```
+
+It installs into `music-gen` in your current folder and takes care of Homebrew
+(if missing), FFmpeg, uv, Python, both environments, the pinned ACE-Step checkout,
+its launcher settings, and the FLUX artwork model. Homebrew may ask for your Mac
+password or Command Line Tools during its first installation.
+
+Already cloned the repository? Run `./setup.sh` inside it instead. If setup is
+interrupted, rerun the same command; completed model downloads are reused.
+
+Allow disk space for both model sets and generated videos. Artwork weights are
+about 9.6 GB; ACE-Step downloads its music models on the first generation. The
+workflow was used on a Mac with 24 GB RAM. Model weights, environments, and
+outputs stay outside Git.
+
+<details>
+<summary>Manual installation</summary>
+
+Install [Homebrew](https://brew.sh/) and Git first, then:
 
 ```sh
 git clone https://github.com/mowne67/music-gen.git
@@ -51,31 +61,20 @@ cd music-gen
 brew install ffmpeg uv
 uv venv .venv-flux --python 3.12
 uv pip install --python .venv-flux/bin/python -r requirements-art.txt
-```
-
-Install the ACE-Step revision used by this pipeline:
-
-```sh
 git clone https://github.com/ace-step/ACE-Step-1.5.git ACE-Step-1.5
 git -C ACE-Step-1.5 checkout ca1e85fe9430179831e6bc6be790c332190a3866
 git -C ACE-Step-1.5 apply ../docs/acestep-macos-launcher.patch
-uv sync --directory ACE-Step-1.5 --python 3.12
-```
-
-The included launcher patch sets the API port to `8002`, which the pipeline
-expects, and disables the launcher's update check so the checkout stays pinned.
-Apply it once to the fresh checkout. ACE-Step downloads its music models when
-they are first needed.
-
-Download the prequantized FLUX model used by `art.py`:
-
-```sh
+uv sync --directory ACE-Step-1.5 --python 3.12 --locked
 .venv-flux/bin/hf download dhairyashil/FLUX.1-schnell-mflux-v0.6.2-4bit \
   --local-dir models/flux-schnell-4bit
 ```
 
-This is a community 4-bit conversion for MFLUX. Model files, the upstream
-checkout, environments, and generated media are excluded from Git.
+Apply the launcher patch once to a fresh checkout. It sets port `8002` and
+disables the launcher's update check. ACE-Step uses its own Python environment;
+the other scripts use `.venv-flux`. The artwork model is a community 4-bit
+conversion for MFLUX.
+
+</details>
 
 ## Generate a video
 
@@ -232,18 +231,21 @@ audio/video duration differences greater than 0.1 seconds.
 Run the regression tests without downloading models or starting the API:
 
 ```sh
-.venv-flux/bin/python -m unittest -v test_pipeline
+.venv-flux/bin/python -m unittest -v test_pipeline test_setup
 ```
 
 The tests use small synthetic WAVs and images with real FFmpeg/ffprobe. They
 cover interrupted runs, saved task recovery, corrupt downloads, numbering gaps,
 legacy output protection, manifests, completed-run skips, duration mismatches,
-and deterministic animation wraparound. They do not assess musical quality.
+and deterministic animation wraparound. Installer tests cover fresh setup,
+reruns, interrupted downloads, and existing-file protection with mocked external
+installation commands. They do not assess musical quality.
 
 ## Project files
 
 | File | Responsibility |
 | --- | --- |
+| `setup.sh` | Install dependencies, configure ACE-Step, and download artwork weights |
 | `make_video.py` | Generate and resume one complete release |
 | `gen.py` | ACE-Step API requests, polling, and music downloads |
 | `stitch.sh` | Trim and crossfade music takes |
@@ -253,6 +255,7 @@ and deterministic animation wraparound. They do not assess musical quality.
 | `pipeline.py` | Manifests, locks, checkpoints, and artifact validation |
 | `run_monsoon_train.py` | Run the three-part example mix |
 | `test_pipeline.py` | Regression tests |
+| `test_setup.py` | Installer recovery and file protection tests |
 
 ## Built with
 
