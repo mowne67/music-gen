@@ -211,8 +211,36 @@ To animate an existing image:
 ```
 
 Loops are rendered at 1920 × 1080 and 24 fps with H.264 and no B-frames to reduce
-timestamp overlaps when cutting repeated video. Updating a script does not
-automatically rerender a finished release.
+timestamp overlaps when cutting repeated video. On macOS, new animations use
+Apple's VideoToolbox hardware encoder to reduce CPU usage. A one-frame probe
+checks hardware availability before rendering; unavailable hardware falls back
+to the previous `libx264` software encoder. Other platforms use `libx264`.
+The animation sidecar records the encoder and its quality setting. Hardware
+encoding uses quality 75; software encoding uses CRF 16 with the slow preset.
+These quality scales differ, and output sizes can differ too.
+
+Standalone `animate.py` accepts `--encoder libx264` to select software encoding
+or `--encoder h264_videotoolbox` to require hardware encoding. The full pipeline
+uses automatic selection.
+
+On Apple Silicon, animation effects also render on the GPU through MLX. A single
+Metal shader combines flicker, light sweeps, rain, fireflies, and grain in batches
+of at most 16 frames. FFmpeg uses one scaling worker and the hardware encoder is
+configured with one codec thread to limit CPU overhead when frames arrive in
+batches. GPU initialization and the first batch run before encoding
+starts; automatic mode falls back to NumPy if MLX or Metal is unavailable.
+Use `--renderer numpy` to select the previous CPU implementation, or
+`--renderer mlx` to require GPU effects. `--batch-size N` controls GPU batch size.
+The sidecar records the renderer and GPU batch size.
+
+Effect geometry and timing match the NumPy renderer within float rounding.
+GPU grain uses MLX random numbers, so its pattern differs from NumPy for the
+same seed. Within a renderer it is repeatable, independent of batch size, and
+wraps at the loop boundary. Small timing/orbit calculations, image loading,
+FFmpeg scaling and audio filters still use CPU. Music and artwork generation
+already use Apple GPU acceleration.
+
+Updating a script does not automatically rerender a finished release.
 
 ## Provenance and validation
 

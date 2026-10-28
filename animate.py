@@ -3,6 +3,8 @@
 
 Usage:  .venv-flux/bin/python animate.py art/monsoon_window_2.png rain flicker
         [--seconds 40] [--seed 7] [--output-dir video]
+        [--encoder auto|h264_videotoolbox|libx264]
+        [--renderer auto|mlx|numpy] [--batch-size 16]
 Effects: rain, flicker, fireflies, sweep (passing light), grain
          rain=x0,y0,x1,y1 limits rain to a box, as fractions of the frame (e.g. a window)
 Output: video/<stem>_loop.mp4 (1920x1080) + video/<stem>_thumb.png (pixelated still, for thumbnails)
@@ -10,7 +12,7 @@ Output: video/<stem>_loop.mp4 (1920x1080) + video/<stem>_thumb.png (pixelated st
 Every effect repeats exactly once (or a whole number of times) per LOOP seconds,
 so frame 0 follows the last frame with no visible seam.
 """
-import argparse, subprocess, tempfile
+import argparse, itertools, subprocess, sys, tempfile
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -18,6 +20,33 @@ from pipeline import write_json
 
 W, H, SCALE = 480, 270, 4   # draw at 480x270, upscale 4x with nearest -> crisp 1920x1080
 FPS, LOOP = 24, 40
+
+
+def encoder_settings(requested="auto"):
+    """Probe hardware before rendering; keep a software option for other hosts."""
+    hardware = ["-c:v", "h264_videotoolbox", "-allow_sw", "0", "-q:v", "75", "-threads", "1"]
+    if requested == "auto":
+        requested = "libx264"
+        if sys.platform == "darwin":
+            try:
+                probe = subprocess.run([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                    "-f", "lavfi", "-i", f"color=size={W * SCALE}x{H * SCALE}:rate={FPS}",
+                    "-frames:v", "1", *hardware, "-bf", "0", "-pix_fmt", "yuv420p",
+                    "-f", "null", "-",
+                ], capture_output=True, text=True, timeout=10)
+                if probe.returncode == 0:
+                    requested = "h264_videotoolbox"
+                else:
+                    print("VideoToolbox unavailable; using libx264:\n" +
+                          "\n".join(probe.stderr.splitlines()[-5:]), file=sys.stderr, flush=True)
+            except subprocess.TimeoutExpired:
+                print("VideoToolbox probe timed out; using libx264", file=sys.stderr, flush=True)
+    if requested == "h264_videotoolbox":
+        return hardware, {"codec": requested, "quality": 75, "encoder_threads": 1}
+    return ["-c:v", "libx264", "-preset", "slow", "-crf", "16"], {
+        "codec": "libx264", "preset": "slow", "crf": 16,
+    }
 
 
 def pixelate(path):
@@ -92,16 +121,42 @@ def frames(base, effects, seconds=LOOP, seed=7, start_frame=0, frame_count=None)
         yield (np.clip(img, 0, 1) * 255).astype(np.uint8)
 
 
+def frame_source(base, effects, seconds=LOOP, seed=7, renderer="auto", batch_size=16):
+    """Initialize GPU rendering before opening FFmpeg so auto can fall back safely."""
+    if renderer == "numpy" or (renderer == "auto" and sys.platform != "darwin"):
+        return frames(base, effects, seconds, seed), {"renderer": "numpy"}
+    try:
+        import mlx.core as mx
+        from animate_mlx import frames as gpu_frames
+        if not mx.metal.is_available():
+            raise RuntimeError("Metal GPU is unavailable")
+        source = gpu_frames(base, effects, seconds, seed, batch_size=batch_size)
+        first = next(source)  # Includes shader compilation and the first GPU batch.
+        return itertools.chain((first,), source), {"renderer": "mlx", "renderer_batch_size": batch_size}
+    except (ImportError, OSError, RuntimeError) as exc:
+        if renderer != "auto":
+            raise RuntimeError(f"MLX renderer unavailable: {exc}") from exc
+        print(f"MLX renderer unavailable; using NumPy: {exc}", file=sys.stderr, flush=True)
+        return frames(base, effects, seconds, seed), {"renderer": "numpy"}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("src", type=Path); ap.add_argument("effects", nargs="*")
     ap.add_argument("--seconds", type=int, default=LOOP); ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--output-dir", type=Path, default=Path(__file__).parent / "video")
+    ap.add_argument("--encoder", choices=("auto", "h264_videotoolbox", "libx264"), default="auto",
+                    help="auto uses Apple hardware encoding when available, otherwise libx264")
+    ap.add_argument("--renderer", choices=("auto", "mlx", "numpy"), default="auto",
+                    help="auto uses batched MLX GPU effects when available, otherwise NumPy")
+    ap.add_argument("--batch-size", type=int, default=16, help="maximum frames per GPU batch")
     args = ap.parse_args()
     if args.seconds <= 0:
         ap.error("--seconds must be positive")
     if args.seed < 0:
         ap.error("--seed must be nonnegative")
+    if args.batch_size <= 0:
+        ap.error("--batch-size must be positive")
     src = args.src
     effects = {k: tuple(map(float, v.split(","))) if v else None
                for k, _, v in (a.partition("=") for a in args.effects)}
@@ -110,20 +165,22 @@ def main():
         x0, y0, x1, y1 = effects["rain"]
         if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
             ap.error("rain bounds must be x0,y0,x1,y1 within the frame")
+    encoding_args, encoding = encoder_settings(args.encoder)
     out = args.output_dir
     out.mkdir(parents=True, exist_ok=True)
     base = pixelate(src)
+    source, rendering = frame_source(base, effects, args.seconds, args.seed, args.renderer, args.batch_size)
     thumb, dest = out / f"{src.stem}_thumb.png", out / f"{src.stem}_loop.mp4"
     thumb_tmp, tmp = thumb.with_suffix(".tmp.png"), dest.with_suffix(".tmp.mp4")
     Image.fromarray((base * 255).astype(np.uint8)).resize((W * SCALE, H * SCALE), Image.NEAREST).save(thumb_tmp)
     with tempfile.TemporaryFile(mode="w+t") as log:
-        ff = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        ff = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-filter_threads", "1",
                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
                            "-vf", f"scale={W * SCALE}:{H * SCALE}:flags=neighbor",
-                           "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-bf", "0", "-pix_fmt", "yuv420p",
+                           *encoding_args, "-bf", "0", "-pix_fmt", "yuv420p",
                            tmp], stdin=subprocess.PIPE, stderr=log)
         try:
-            for fr in frames(base, effects, args.seconds, args.seed):
+            for fr in source:
                 ff.stdin.write(fr.tobytes())
             ff.stdin.close()
             if ff.wait() != 0:
@@ -143,8 +200,10 @@ def main():
             thumb_tmp.unlink(missing_ok=True)
     write_json(dest.with_suffix(".json"), {"source": str(src), "seconds": args.seconds, "fps": FPS,
                "seed": args.seed, "effects": args.effects, "light_sweeps": light_sweeps(args.seconds, args.seed),
-               "width": W * SCALE, "height": H * SCALE, "codec": "libx264", "crf": 16, "b_frames": 0})
-    print(f"✓ {dest}  ({args.seconds}s, effects: {' '.join(args.effects)})")
+               "width": W * SCALE, "height": H * SCALE, **encoding, **rendering,
+               "filter_threads": 1, "b_frames": 0})
+    print(f"✓ {dest}  ({args.seconds}s, renderer: {rendering['renderer']}, "
+          f"encoder: {encoding['codec']}, effects: {' '.join(args.effects)})")
 
 
 if __name__ == "__main__":

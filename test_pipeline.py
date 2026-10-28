@@ -35,6 +35,31 @@ def wav(path, seconds=7, frequency=220):
 
 
 class HelpersTest(unittest.TestCase):
+    def test_missing_mlx_falls_back_only_in_auto_mode(self):
+        base = np.full((animate.H, animate.W, 3), 0.35, dtype=np.float32)
+        with patch("animate.sys.platform", "darwin"), patch.dict(sys.modules, {"mlx.core": None}), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            source, settings = animate.frame_source(base, {}, seconds=1)
+            self.assertEqual(settings["renderer"], "numpy")
+            np.testing.assert_array_equal(next(source), next(animate.frames(base, {}, seconds=1)))
+            self.assertIn("using NumPy", err.getvalue())
+            with self.assertRaisesRegex(RuntimeError, "MLX renderer unavailable"):
+                animate.frame_source(base, {}, seconds=1, renderer="mlx")
+
+    def test_unavailable_hardware_falls_back_before_rendering(self):
+        failure = subprocess.CompletedProcess([], 1, stderr="Hardware encoder unavailable")
+        with patch("animate.sys.platform", "darwin"), \
+                patch("animate.subprocess.run", return_value=failure), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            _, settings = animate.encoder_settings()
+        self.assertEqual(settings["codec"], "libx264")
+        self.assertIn("Hardware encoder unavailable", err.getvalue())
+        # Explicit selection must not silently switch back to CPU encoding.
+        with patch("animate.subprocess.run") as probe:
+            _, settings = animate.encoder_settings("h264_videotoolbox")
+        probe.assert_not_called()
+        self.assertEqual(settings["codec"], "h264_videotoolbox")
+
     def test_numbering_survives_gaps_and_partial_files(self):
         with tempfile.TemporaryDirectory() as d:
             for n in ("track_1.wav", "track_3.wav", "track_5.wav.part", "track_7.json", "track_other.wav"):
@@ -69,6 +94,66 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(len({e["start_frame"] for e in events}), 5)
         self.assertGreater(len({e["duration_frames"] for e in events}), 1)
         self.assertTrue(all(isinstance(e["start_frame"], int) for e in events))
+
+
+class MlxAnimationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import mlx.core as mx
+            import animate_mlx
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise unittest.SkipTest(f"MLX unavailable: {exc}")
+        if not mx.metal.is_available():
+            raise unittest.SkipTest("Metal GPU unavailable")
+        cls.gpu = staticmethod(animate_mlx.frames)
+
+    def test_effect_geometry_matches_numpy(self):
+        base = np.random.default_rng(4).uniform(0.05, 0.95, (animate.H, animate.W, 3)).astype(np.float32)
+        effects = {"rain": (0.2, 0.1, 0.8, 0.9), "sweep": None, "flicker": None, "fireflies": None}
+        # Includes loop boundaries and several different light-sweep events.
+        for first in (0, 137, 390, 720, 955):
+            with self.subTest(first=first):
+                cpu = np.stack(list(animate.frames(base, effects, seconds=40, seed=9,
+                                                  start_frame=first, frame_count=9)))
+                gpu = np.stack(list(self.gpu(base, effects, seconds=40, seed=9,
+                                            start_frame=first, frame_count=9, batch_size=4)))
+                difference = np.abs(cpu.astype(np.int16) - gpu.astype(np.int16))
+                self.assertLessEqual(difference.max(), 1)
+                self.assertLess(np.mean(difference != 0), 0.001)
+
+    def test_grain_is_independent_of_batch_size_and_wraps(self):
+        base = np.full((animate.H, animate.W, 3), 0.35, dtype=np.float32)
+        effects = {"rain": None, "sweep": None, "flicker": None, "grain": None, "fireflies": None}
+        whole = np.stack(list(self.gpu(base, effects, seconds=40, seed=9,
+                                      start_frame=955, frame_count=11, batch_size=16)))
+        smaller = np.stack(list(self.gpu(base, effects, seconds=40, seed=9,
+                                        start_frame=955, frame_count=11, batch_size=4)))
+        wrap = np.stack(list(self.gpu(base, effects, seconds=40, seed=9, frame_count=6)))
+        np.testing.assert_array_equal(whole, smaller)
+        np.testing.assert_array_equal(whole[5:], wrap)
+
+    def test_gpu_grain_keeps_the_same_distribution(self):
+        base = np.full((animate.H, animate.W, 3), 0.35, dtype=np.float32)
+        cpu = np.stack(list(animate.frames(base, {"grain": None}, frame_count=4)))
+        gpu = np.stack(list(self.gpu(base, {"grain": None}, frame_count=4)))
+        self.assertLess(abs(cpu.mean() - gpu.mean()), 0.1)
+        self.assertLess(abs(cpu.std() - gpu.std()), 0.1)
+        np.testing.assert_array_equal(gpu[..., 0], gpu[..., 1])
+        other = next(self.gpu(base, {"grain": None}, seed=8, frame_count=1))
+        self.assertFalse(np.array_equal(gpu[0], other))
+
+    def test_initial_gpu_failure_falls_back_before_output(self):
+        base = np.full((animate.H, animate.W, 3), 0.35, dtype=np.float32)
+        with patch("animate.sys.platform", "darwin"), \
+                patch("animate_mlx.frames", side_effect=RuntimeError("shader unavailable")), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            source, settings = animate.frame_source(base, {}, seconds=1)
+            self.assertEqual(settings["renderer"], "numpy")
+            self.assertEqual(next(source).shape, base.shape)
+            self.assertIn("shader unavailable", err.getvalue())
+            with self.assertRaisesRegex(RuntimeError, "shader unavailable"):
+                animate.frame_source(base, {}, seconds=1, renderer="mlx")
 
 
 class GenerationTest(unittest.TestCase):
